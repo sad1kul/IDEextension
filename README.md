@@ -85,7 +85,7 @@ See [Manual Installation Guide](vscode-extension/README.md)
 ## Requirements
 
 - Python 3.8+
-- Google Chrome
+- Chromium Browser
 - AI IDE with MCP support
 
 ## Author
