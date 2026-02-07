@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AntiGravity Browser Bridge - Test Page</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #00d9ff, #a855f7);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .subtitle {
+            color: #888;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .card h2 {
+            color: #00d9ff;
+            margin-bottom: 16px;
+            font-size: 1.2rem;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            color: #aaa;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            font-size: 1rem;
+        }
+
+        input:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #00d9ff;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #00d9ff, #0066ff);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0, 217, 255, 0.3);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ff4757, #ff6b6b);
+            color: #fff;
+        }
+
+        #output {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            padding: 16px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.9rem;
+            color: #00ff88;
+            min-height: 100px;
+            white-space: pre-wrap;
+        }
+
+        .counter {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #a855f7;
+            text-align: center;
+            padding: 20px;
+        }
+
+        #status-message {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-top: 16px;
+            display: none;
+        }
+
+        #status-message.success {
+            display: block;
+            background: rgba(0, 255, 136, 0.2);
+            border: 1px solid #00ff88;
+            color: #00ff88;
+        }
+
+        #status-message.error {
+            display: block;
+            background: rgba(255, 71, 87, 0.2);
+            border: 1px solid #ff4757;
+            color: #ff4757;
+        }
+
+        .api-test {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🚀 AntiGravity Test Page</h1>
+        <p class="subtitle">Use this page to test MCP tools from your AI IDE</p>
+
+        <!-- Form Test -->
+        <div class="card">
+            <h2>📝 Form Test</h2>
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="Enter username...">
+            </div>
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" placeholder="Enter email...">
+            </div>
+            <div class="form-group">
+                <label for="message">Message</label>
+                <textarea id="message" rows="3" placeholder="Enter a message..."></textarea>
+            </div>
+            <button class="btn-primary" id="submit-btn" onclick="submitForm()">Submit Form</button>
+            <button class="btn-secondary" id="clear-btn" onclick="clearForm()">Clear</button>
+            <div id="status-message"></div>
+        </div>
+
+        <!-- Counter Test -->
+        <div class="card">
+            <h2>🔢 Counter Test</h2>
+            <div class="counter" id="counter">0</div>
+            <button class="btn-primary" id="increment-btn" onclick="increment()">+ Increment</button>
+            <button class="btn-danger" id="decrement-btn" onclick="decrement()">- Decrement</button>
+            <button class="btn-secondary" id="reset-btn" onclick="resetCounter()">Reset</button>
+        </div>
+
+        <!-- API Test (will fail - for CORS testing) -->
+        <div class="card">
+            <h2>🌐 API Test (CORS)</h2>
+            <p style="color: #888; margin-bottom: 16px;">This will intentionally fail to test error capture</p>
+            <button class="btn-primary" id="api-btn" onclick="testAPI()">Call Fake API</button>
+            <div class="api-test">
+                <code id="api-result" style="color: #ff6b6b;"></code>
+            </div>
+        </div>
+
+        <!-- Console Test -->
+        <div class="card">
+            <h2>🖥️ Console Output</h2>
+            <button class="btn-primary" id="log-btn" onclick="logMessage()">Log Info</button>
+            <button class="btn-danger" id="error-btn" onclick="logError()">Log Error</button>
+            <button class="btn-secondary" id="warn-btn" onclick="logWarning()">Log Warning</button>
+            <div id="output">Console output will appear here...</div>
+        </div>
+    </div>
+
+    <script>
+        let count = 0;
+        const output = document.getElementById('output');
+
+        function log(msg, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'warn' ? '⚠️' : '✓';
+            output.textContent += `[${time}] ${prefix} ${msg}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function submitForm() {
+            const username = document.getElementById('username').value;
+            const email = document.getElementById('email').value;
+            const message = document.getElementById('message').value;
+
+            const statusEl = document.getElementById('status-message');
+
+            if (!username || !email) {
+                statusEl.className = 'error';
+                statusEl.textContent = '❌ Please fill in username and email';
+                console.error('Form validation failed: missing fields');
+                log('Form validation failed', 'error');
+                return;
+            }
+
+            statusEl.className = 'success';
+            statusEl.textContent = `✓ Form submitted! Username: ${username}, Email: ${email}`;
+            console.log('Form submitted:', { username, email, message });
+            log(`Form submitted: ${username}, ${email}`);
+        }
+
+        function clearForm() {
+            document.getElementById('username').value = '';
+            document.getElementById('email').value = '';
+            document.getElementById('message').value = '';
+            document.getElementById('status-message').style.display = 'none';
+            log('Form cleared');
+        }
+
+        function increment() {
+            count++;
+            document.getElementById('counter').textContent = count;
+            log(`Counter incremented to ${count}`);
+        }
+
+        function decrement() {
+            count--;
+            document.getElementById('counter').textContent = count;
+            log(`Counter decremented to ${count}`);
+        }
+
+        function resetCounter() {
+            count = 0;
+            document.getElementById('counter').textContent = count;
+            log('Counter reset to 0');
+        }
+
+        function testAPI() {
+            log('Testing API call...');
+            fetch('https://fake-api.example.com/data')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('api-result').textContent = 'Success: ' + JSON.stringify(data);
+                    log('API call succeeded');
+                })
+                .catch(err => {
+                    document.getElementById('api-result').textContent = 'Error: ' + err.message;
+                    console.error('API Error:', err);
+                    log('API call failed: ' + err.message, 'error');
+                });
+        }
+
+        function logMessage() {
+            console.log('This is a test log message');
+            log('Logged an info message');
+        }
+
+        function logError() {
+            console.error('This is a test error message');
+            log('Logged an error message', 'error');
+        }
+
+        function logWarning() {
+            console.warn('This is a test warning message');
+            log('Logged a warning message', 'warn');
+        }
+
+        // Initial log
+        log('Test page loaded and ready!');
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,9 @@
+{
+    "name": "com.antigravity.bridge",
+    "description": "AntiGravity IDE Bridge - Native Messaging Host",
+    "path": "/Users/sadikulislam/Development/FreeLance/IDEextension/native_host.py",
+    "type": "stdio",
+    "allowed_origins": [
+        "chrome-extension://EXTENSION_ID_PLACEHOLDER/"
+    ]
+}
