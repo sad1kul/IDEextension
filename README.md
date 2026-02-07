@@ -52,6 +52,14 @@ cd IDEextension
 ./install.sh
 ```
 
+### Install VSIX
+
+```bash
+cd {{Repo-Directory}}/vscode-extension
+npm install -g @vscode/vsce
+npx vsce package
+```
+
 The script will:
 1. ✅ Install Python dependencies
 2. ✅ Prompt for Chrome Extension ID
