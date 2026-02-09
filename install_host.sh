@@ -1,45 +1,33 @@
-#!/bin/bash
-# ============================================================================
-# AntiGravity IDE Bridge - Native Messaging Host Installer
-# ============================================================================
-# This script registers the native messaging host with Chrome/Chromium.
-# 
-# Usage:
-#   ./install_host.sh <EXTENSION_ID>
-#
-# The EXTENSION_ID is shown in chrome://extensions after loading the extension.
-# ============================================================================
 
 set -e
 
-# Colors for output
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-HOST_NAME="com.antigravity.bridge"
+HOST_NAME="com.browserbridge.host"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 HOST_PATH="${SCRIPT_DIR}/native_host.py"
-MANIFEST_TEMPLATE="${SCRIPT_DIR}/com.antigravity.bridge.json"
 
 echo -e "${BLUE}============================================${NC}"
-echo -e "${BLUE}  AntiGravity IDE Bridge Installer${NC}"
+echo -e "${BLUE}  Browser Bridge Installer${NC}"
 echo -e "${BLUE}============================================${NC}"
 echo ""
 
-# Check for extension ID argument
+# Check for extension ID
 if [ -z "$1" ]; then
     echo -e "${RED}Error: Extension ID required${NC}"
     echo ""
     echo "Usage: ./install_host.sh <EXTENSION_ID>"
     echo ""
     echo "To find your Extension ID:"
-    echo "  1. Open chrome://extensions"
+    echo "  1. Open chrome://extensions (or browser equivalent)"
     echo "  2. Enable 'Developer mode'"
-    echo "  3. Load the AntiGravityIDEconnector folder"
-    echo "  4. Copy the ID shown under the extension name"
+    echo "  3. Load the extension folder"
+    echo "  4. Copy the ID shown"
     echo ""
     exit 1
 fi
@@ -50,37 +38,22 @@ echo -e "${YELLOW}Extension ID:${NC} $EXTENSION_ID"
 echo -e "${YELLOW}Host Script:${NC} $HOST_PATH"
 echo ""
 
-# Make the host script executable
+# Make host script executable
 chmod +x "$HOST_PATH"
 echo -e "${GREEN}✓${NC} Made native_host.py executable"
 
-# Determine Chrome native messaging hosts directory based on OS
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS
-    CHROME_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-    CHROMIUM_DIR="$HOME/Library/Application Support/Chromium/NativeMessagingHosts"
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    # Linux
-    CHROME_DIR="$HOME/.config/google-chrome/NativeMessagingHosts"
-    CHROMIUM_DIR="$HOME/.config/chromium/NativeMessagingHosts"
-else
-    echo -e "${RED}Error: Unsupported OS: $OSTYPE${NC}"
-    exit 1
-fi
-
-# Create directories if they don't exist
-mkdir -p "$CHROME_DIR" 2>/dev/null || true
-mkdir -p "$CHROMIUM_DIR" 2>/dev/null || true
-
-# Create the manifest with the actual extension ID and absolute path
+# Create manifest function
 create_manifest() {
     local dest_dir="$1"
+    local browser_name="$2"
     local manifest_path="$dest_dir/${HOST_NAME}.json"
+    
+    mkdir -p "$dest_dir" 2>/dev/null || return 1
     
     cat > "$manifest_path" << EOF
 {
   "name": "${HOST_NAME}",
-  "description": "AntiGravity IDE Bridge - Native Messaging Host",
+  "description": "Browser Bridge - Native Messaging Host",
   "path": "${HOST_PATH}",
   "type": "stdio",
   "allowed_origins": [
@@ -88,17 +61,57 @@ create_manifest() {
   ]
 }
 EOF
-    echo -e "${GREEN}✓${NC} Created manifest: $manifest_path"
+    echo -e "${GREEN}✓${NC} Installed for ${browser_name}: $manifest_path"
+    return 0
 }
 
-# Install for Chrome
-if [ -d "$CHROME_DIR" ] || mkdir -p "$CHROME_DIR" 2>/dev/null; then
-    create_manifest "$CHROME_DIR"
+# Detect OS and set browser paths
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    declare -A BROWSERS=(
+        ["Chrome"]="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+        ["Brave"]="$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+        ["Edge"]="$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
+        ["Opera"]="$HOME/Library/Application Support/com.operasoftware.Opera/NativeMessagingHosts"
+        ["Vivaldi"]="$HOME/Library/Application Support/Vivaldi/NativeMessagingHosts"
+        ["Arc"]="$HOME/Library/Application Support/Arc/User Data/NativeMessagingHosts"
+        ["Chromium"]="$HOME/Library/Application Support/Chromium/NativeMessagingHosts"
+    )
+elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Linux
+    declare -A BROWSERS=(
+        ["Chrome"]="$HOME/.config/google-chrome/NativeMessagingHosts"
+        ["Brave"]="$HOME/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+        ["Edge"]="$HOME/.config/microsoft-edge/NativeMessagingHosts"
+        ["Opera"]="$HOME/.config/opera/NativeMessagingHosts"
+        ["Vivaldi"]="$HOME/.config/vivaldi/NativeMessagingHosts"
+        ["Chromium"]="$HOME/.config/chromium/NativeMessagingHosts"
+    )
+else
+    echo -e "${RED}Error: Unsupported OS: $OSTYPE${NC}"
+    echo "For Windows, please install manually."
+    exit 1
 fi
 
-# Install for Chromium
-if [ -d "$CHROMIUM_DIR" ] || mkdir -p "$CHROMIUM_DIR" 2>/dev/null; then
-    create_manifest "$CHROMIUM_DIR"
+# Install for all browsers
+echo ""
+echo -e "${YELLOW}Installing for detected browsers...${NC}"
+installed_count=0
+
+for browser in "${!BROWSERS[@]}"; do
+    dir="${BROWSERS[$browser]}"
+    # Check if browser's parent directory exists (browser is installed)
+    parent_dir=$(dirname "$dir")
+    if [ -d "$parent_dir" ]; then
+        if create_manifest "$dir" "$browser"; then
+            ((installed_count++))
+        fi
+    fi
+done
+
+if [ $installed_count -eq 0 ]; then
+    echo -e "${YELLOW}No browsers detected. Creating for Chrome anyway...${NC}"
+    create_manifest "${BROWSERS["Chrome"]}" "Chrome"
 fi
 
 echo ""
@@ -106,8 +119,10 @@ echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}  Installation Complete!${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
+echo -e "Installed for ${GREEN}$installed_count${NC} browser(s)"
+echo ""
 echo -e "Next steps:"
-echo -e "  1. ${YELLOW}Restart Chrome${NC} (close all windows)"
-echo -e "  2. Open the AntiGravity extension popup"
-echo -e "  3. Click '${BLUE}Start Server${NC}' to begin"
+echo -e "  1. ${YELLOW}Restart your browser${NC} (close all windows)"
+echo -e "  2. Open the Browser Bridge extension popup"
+echo -e "  3. Click '${BLUE}Connect${NC}' to begin"
 echo ""

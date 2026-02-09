@@ -3,10 +3,13 @@ const { exec, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const http = require('http');
 
-// Extension root directory (where Python files are)
-const EXTENSION_ROOT = path.dirname(__dirname);
+const BRIDGE_URL = 'http://127.0.0.1:8000';
+
 let serverProcess = null;
+let statusBarItem = null;
+let statusInterval = null;
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -14,305 +17,342 @@ let serverProcess = null;
 async function activate(context) {
     console.log('Browser Bridge is activating...');
 
+    // Create status bar item
+    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    statusBarItem.command = 'browserbridge.showMenu';
+    statusBarItem.tooltip = 'Browser Bridge - Click for options';
+    context.subscriptions.push(statusBarItem);
+
     // Register commands
     context.subscriptions.push(
-        vscode.commands.registerCommand('browserbridge.setup', runSetupWizard),
-        vscode.commands.registerCommand('browserbridge.startServer', startServer),
+        vscode.commands.registerCommand('browserbridge.showMenu', showBrowserMenu),
+        vscode.commands.registerCommand('browserbridge.startServer', () => startServer(false)),
         vscode.commands.registerCommand('browserbridge.stopServer', stopServer),
-        vscode.commands.registerCommand('browserbridge.status', checkStatus)
+        vscode.commands.registerCommand('browserbridge.restartServer', restartServer),
+        vscode.commands.registerCommand('browserbridge.selectBrowser', selectBrowser)
     );
 
-    // Check if first run
+    // Start status polling
+    updateStatusBar();
+    statusInterval = setInterval(updateStatusBar, 3000);
+    context.subscriptions.push({ dispose: () => clearInterval(statusInterval) });
+
+    // Auto-start if enabled
     const config = vscode.workspace.getConfiguration('browserbridge');
-    const extensionId = config.get('chromeExtensionId');
-
-    if (!extensionId) {
-        // First run - show setup wizard
-        const action = await vscode.window.showInformationMessage(
-            'Browser Bridge needs to be configured. Would you like to run setup now?',
-            'Run Setup',
-            'Later'
-        );
-        if (action === 'Run Setup') {
-            await runSetupWizard();
-        }
-    } else {
-        vscode.window.showInformationMessage('Browser Bridge is ready!');
+    if (config.get('autoStart')) {
+        await startServer(true);
     }
+
+    statusBarItem.show();
 }
 
 /**
- * Main setup wizard
+ * Get the path to bridge_server.py
  */
-async function runSetupWizard() {
+function getServerPath() {
+    const config = vscode.workspace.getConfiguration('browserbridge');
+    const customPath = config.get('serverPath');
+
+    if (customPath && fs.existsSync(customPath)) {
+        return customPath;
+    }
+
+    // Try common locations
+    const possiblePaths = [
+        // Workspace folder
+        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath + '/bridge_server.py',
+        // Home directory
+        path.join(os.homedir(), 'Development/FreeLance/IDEextension/bridge_server.py'),
+        // Extension directory (for development)
+        path.join(__dirname, '..', 'bridge_server.py'),
+        path.join(__dirname, 'bridge_server.py'),
+    ];
+
+    for (const p of possiblePaths) {
+        if (p && fs.existsSync(p)) {
+            return p;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Update status bar
+ */
+async function updateStatusBar() {
     try {
-        // Step 1: Check Python
-        vscode.window.showInformationMessage('🔍 Checking Python installation...');
-        const pythonPath = await checkPython();
-        if (!pythonPath) {
-            vscode.window.showErrorMessage('Python 3 is required but not found. Please install Python first.');
-            return;
-        }
+        const data = await fetchJSON(`${BRIDGE_URL}/clients`);
 
-        // Step 2: Install dependencies
-        vscode.window.showInformationMessage('📦 Installing Python dependencies...');
-        const depsInstalled = await installDependencies(pythonPath);
-        if (!depsInstalled) {
-            vscode.window.showErrorMessage('Failed to install Python dependencies.');
-            return;
+        if (data && data.count > 0) {
+            const active = data.clients.find(c => c.id === data.active);
+            const icon = getBrowserIcon(active?.browser || 'Unknown');
+            statusBarItem.text = `${icon} ${active?.browser || 'Browser'} (${data.count})`;
+            statusBarItem.backgroundColor = undefined;
+        } else if (data) {
+            statusBarItem.text = '$(globe) No Browser';
+            statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+        } else {
+            statusBarItem.text = '$(circle-slash) Offline';
+            statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
         }
+    } catch {
+        statusBarItem.text = '$(circle-slash) Offline';
+        statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+    }
+}
 
-        // Step 3: Ask for Chrome Extension ID
-        const extensionId = await vscode.window.showInputBox({
-            prompt: 'Enter Chrome Extension ID',
-            placeHolder: 'e.g., abcdefghijklmnopqrstuvwxyz',
-            ignoreFocusOut: true,
-            validateInput: (value) => {
-                if (!value || value.length < 10) {
-                    return 'Please enter a valid Extension ID (found in chrome://extensions)';
-                }
-                return null;
-            }
+function getBrowserIcon(browser) {
+    const icons = {
+        'Chrome': '$(browser)',
+        'Brave': '$(shield)',
+        'Edge': '$(window)',
+        'Firefox': '$(flame)',
+        'Safari': '$(compass)',
+        'Opera': '$(debug-console)',
+        'Vivaldi': '$(symbol-color)',
+        'Arc': '$(sparkle)'
+    };
+    return icons[browser] || '$(globe)';
+}
+
+/**
+ * Show browser menu
+ */
+async function showBrowserMenu() {
+    const data = await fetchJSON(`${BRIDGE_URL}/clients`);
+    const items = [];
+
+    if (!data) {
+        // Server not running
+        items.push({
+            label: '$(play) Start Server',
+            action: 'start'
+        });
+    } else {
+        // Server running
+        items.push({
+            label: '$(refresh) Restart Server',
+            action: 'restart'
+        });
+        items.push({
+            label: '$(stop) Stop Server',
+            action: 'stop'
         });
 
-        if (!extensionId) {
-            vscode.window.showWarningMessage('Setup cancelled.');
-            return;
+        // Browser list
+        if (data.clients && data.clients.length > 0) {
+            items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+            items.push({ label: 'Switch Browser', kind: vscode.QuickPickItemKind.Separator });
+
+            for (const client of data.clients) {
+                const isActive = client.id === data.active;
+                const icon = getBrowserIcon(client.browser);
+                items.push({
+                    label: `${isActive ? '★ ' : ''}${icon} ${client.browser}`,
+                    description: client.url.substring(0, 40) + (client.url.length > 40 ? '...' : ''),
+                    detail: `ID: ${client.id}`,
+                    action: 'select',
+                    clientId: client.id
+                });
+            }
+        } else {
+            items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+            items.push({
+                label: '$(info) No browsers connected',
+                description: 'Open extension in browser and click Connect'
+            });
         }
+    }
 
-        // Save Extension ID to settings
-        const config = vscode.workspace.getConfiguration('browserbridge');
-        await config.update('chromeExtensionId', extensionId, vscode.ConfigurationTarget.Global);
+    // Settings
+    items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+    items.push({
+        label: '$(gear) Configure Server Path',
+        action: 'configure'
+    });
 
-        // Step 4: Register Native Messaging Host
-        vscode.window.showInformationMessage('🔧 Registering native messaging host...');
-        const hostRegistered = await registerNativeHost(extensionId);
-        if (!hostRegistered) {
-            vscode.window.showErrorMessage('Failed to register native messaging host.');
-            return;
-        }
+    const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Browser Bridge',
+        title: 'Browser Bridge'
+    });
 
-        // Step 5: Configure MCP
-        vscode.window.showInformationMessage('⚙️ Configuring MCP server...');
-        await configureMCP(pythonPath);
+    if (!selected || !selected.action) return;
 
-        // Done!
-        vscode.window.showInformationMessage(
-            '✅ Browser Bridge setup complete! Please restart Chrome.',
-            'OK'
-        );
-
-    } catch (error) {
-        vscode.window.showErrorMessage(`Setup failed: ${error.message}`);
+    switch (selected.action) {
+        case 'start':
+            await startServer(false);
+            break;
+        case 'stop':
+            await stopServer();
+            break;
+        case 'restart':
+            await restartServer();
+            break;
+        case 'select':
+            await selectBrowserById(selected.clientId);
+            break;
+        case 'configure':
+            await configureServerPath();
+            break;
     }
 }
 
 /**
- * Check if Python is installed
+ * Configure server path
  */
-function checkPython() {
-    return new Promise((resolve) => {
-        const config = vscode.workspace.getConfiguration('browserbridge');
-        const pythonPath = config.get('pythonPath') || 'python3';
+async function configureServerPath() {
+    const config = vscode.workspace.getConfiguration('browserbridge');
+    const current = config.get('serverPath') || '';
 
-        exec(`${pythonPath} --version`, (error, stdout) => {
-            if (error) {
-                // Try 'python' as fallback
-                exec('python --version', (err2, stdout2) => {
-                    if (err2 || !stdout2.includes('Python 3')) {
-                        resolve(null);
-                    } else {
-                        resolve('python');
-                    }
-                });
-            } else if (stdout.includes('Python 3')) {
-                resolve(pythonPath);
-            } else {
-                resolve(null);
-            }
-        });
+    const result = await vscode.window.showInputBox({
+        prompt: 'Enter path to bridge_server.py',
+        value: current || getServerPath() || '',
+        placeHolder: '/path/to/bridge_server.py'
     });
+
+    if (result !== undefined) {
+        await config.update('serverPath', result, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage('Server path updated!');
+    }
 }
 
 /**
- * Install Python dependencies
+ * Select browser
  */
-function installDependencies(pythonPath) {
-    return new Promise((resolve) => {
-        const requirementsPath = path.join(EXTENSION_ROOT, 'requirements.txt');
+async function selectBrowser() {
+    const data = await fetchJSON(`${BRIDGE_URL}/clients`);
 
-        exec(`${pythonPath} -m pip install -r "${requirementsPath}"`, (error, stdout, stderr) => {
-            if (error) {
-                console.error('Pip install error:', stderr);
-                resolve(false);
-            } else {
-                resolve(true);
-            }
-        });
+    if (!data || data.count === 0) {
+        vscode.window.showWarningMessage('No browsers connected.');
+        return;
+    }
+
+    const items = data.clients.map(client => ({
+        label: `${getBrowserIcon(client.browser)} ${client.browser}`,
+        description: client.url.substring(0, 50),
+        detail: client.id === data.active ? '★ Active' : `ID: ${client.id}`,
+        clientId: client.id
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select a browser'
     });
+
+    if (selected) {
+        await selectBrowserById(selected.clientId);
+    }
 }
 
-/**
- * Register native messaging host
- */
-function registerNativeHost(extensionId) {
-    return new Promise((resolve) => {
-        const nativeHostPath = path.join(EXTENSION_ROOT, 'native_host.py');
-        const hostName = 'com.browserbridge.host';
-
-        // Determine Chrome native messaging directory
-        let chromeDir;
-        if (process.platform === 'darwin') {
-            chromeDir = path.join(os.homedir(), 'Library/Application Support/Google/Chrome/NativeMessagingHosts');
-        } else if (process.platform === 'linux') {
-            chromeDir = path.join(os.homedir(), '.config/google-chrome/NativeMessagingHosts');
+async function selectBrowserById(clientId) {
+    try {
+        const result = await fetchJSON(`${BRIDGE_URL}/select/${clientId}`, 'POST');
+        if (result?.success) {
+            vscode.window.showInformationMessage(`✅ Switched to: ${clientId}`);
+            await updateStatusBar();
         } else {
-            // Windows
-            chromeDir = path.join(os.homedir(), 'AppData/Local/Google/Chrome/User Data/NativeMessagingHosts');
+            vscode.window.showErrorMessage(`Failed: ${result?.error || 'Unknown error'}`);
         }
-
-        // Create directory if needed
-        if (!fs.existsSync(chromeDir)) {
-            fs.mkdirSync(chromeDir, { recursive: true });
-        }
-
-        // Create manifest
-        const manifest = {
-            name: hostName,
-            description: 'Browser Bridge - Native Messaging Host',
-            path: nativeHostPath,
-            type: 'stdio',
-            allowed_origins: [`chrome-extension://${extensionId}/`]
-        };
-
-        const manifestPath = path.join(chromeDir, `${hostName}.json`);
-        fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-
-        // Make native_host.py executable (Unix)
-        if (process.platform !== 'win32') {
-            fs.chmodSync(nativeHostPath, '755');
-        }
-
-        resolve(true);
-    });
+    } catch (e) {
+        vscode.window.showErrorMessage(`Error: ${e.message}`);
+    }
 }
 
 /**
- * Configure MCP server
+ * Fetch JSON
  */
-function configureMCP(pythonPath) {
+function fetchJSON(url, method = 'GET') {
     return new Promise((resolve) => {
-        const mcpServerPath = path.join(EXTENSION_ROOT, 'mcp_server.py');
-        const geminiConfigDir = path.join(os.homedir(), '.gemini', 'antigravity');
-        const mcpConfigPath = path.join(geminiConfigDir, 'mcp_config.json');
-
-        // Create directory if needed
-        if (!fs.existsSync(geminiConfigDir)) {
-            fs.mkdirSync(geminiConfigDir, { recursive: true });
-        }
-
-        // Create MCP config
-        const mcpConfig = {
-            mcpServers: {
-                'browser-bridge': {
-                    command: pythonPath,
-                    args: [mcpServerPath],
-                    env: {}
+        const req = http.request(url, { method, timeout: 2000 }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data));
+                } catch {
+                    resolve(null);
                 }
-            }
-        };
-
-        fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
-        resolve(true);
+            });
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+        req.end();
     });
 }
 
 /**
- * Start the bridge server
+ * Start server
  */
-async function startServer() {
-    if (serverProcess) {
-        vscode.window.showWarningMessage('Server is already running.');
+async function startServer(silent = false) {
+    // Check if already running
+    const health = await fetchJSON(`${BRIDGE_URL}/health`);
+    if (health) {
+        if (!silent) vscode.window.showInformationMessage('Server is already running.');
+        return;
+    }
+
+    const serverPath = getServerPath();
+
+    if (!serverPath) {
+        const action = await vscode.window.showErrorMessage(
+            'bridge_server.py not found. Configure the path?',
+            'Configure'
+        );
+        if (action === 'Configure') {
+            await configureServerPath();
+        }
         return;
     }
 
     const config = vscode.workspace.getConfiguration('browserbridge');
     const pythonPath = config.get('pythonPath') || 'python3';
-    const serverScript = path.join(EXTENSION_ROOT, 'bridge_server.py');
 
-    serverProcess = spawn(pythonPath, [serverScript], {
-        cwd: EXTENSION_ROOT,
-        detached: true
+    serverProcess = spawn(pythonPath, [serverPath], {
+        cwd: path.dirname(serverPath),
+        detached: true,
+        stdio: 'ignore'
     });
+
+    serverProcess.unref();
 
     serverProcess.on('error', (err) => {
-        vscode.window.showErrorMessage(`Server error: ${err.message}`);
+        if (!silent) vscode.window.showErrorMessage(`Server error: ${err.message}`);
         serverProcess = null;
     });
 
-    serverProcess.on('exit', (code) => {
-        if (code !== 0) {
-            vscode.window.showWarningMessage(`Server exited with code ${code}`);
-        }
-        serverProcess = null;
-    });
+    // Wait for startup
+    await new Promise(r => setTimeout(r, 2000));
+    await updateStatusBar();
 
-    vscode.window.showInformationMessage('🚀 Bridge Server started on ws://127.0.0.1:8000/ws');
+    if (!silent) {
+        vscode.window.showInformationMessage('🚀 Bridge Server started!');
+    }
 }
 
 /**
- * Stop the bridge server
+ * Stop server
  */
 async function stopServer() {
-    if (serverProcess) {
-        serverProcess.kill();
+    // Kill any process on port 8000
+    exec("lsof -ti :8000 | xargs kill -9 2>/dev/null", async () => {
         serverProcess = null;
+        await updateStatusBar();
         vscode.window.showInformationMessage('Server stopped.');
-    } else {
-        // Try to kill any server on port 8000
-        exec("lsof -ti :8000 | xargs kill 2>/dev/null", () => {
-            vscode.window.showInformationMessage('Server stopped.');
-        });
-    }
+    });
 }
 
 /**
- * Check connection status
+ * Restart server
  */
-async function checkStatus() {
-    try {
-        const http = require('http');
-
-        const req = http.get('http://127.0.0.1:8000/health', (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                try {
-                    const status = JSON.parse(data);
-                    if (status.browser_connected) {
-                        vscode.window.showInformationMessage('✅ Server running, Browser connected!');
-                    } else {
-                        vscode.window.showInformationMessage('🟡 Server running, Browser not connected.');
-                    }
-                } catch {
-                    vscode.window.showInformationMessage('🟡 Server running.');
-                }
-            });
-        });
-
-        req.on('error', () => {
-            vscode.window.showWarningMessage('🔴 Server is not running. Use "Browser Bridge: Start Server"');
-        });
-
-        req.end();
-    } catch {
-        vscode.window.showWarningMessage('🔴 Server is not running.');
-    }
+async function restartServer() {
+    await stopServer();
+    await new Promise(r => setTimeout(r, 1000));
+    await startServer(false);
 }
 
 function deactivate() {
-    if (serverProcess) {
-        serverProcess.kill();
+    if (statusInterval) {
+        clearInterval(statusInterval);
     }
 }
 

@@ -1,139 +1,152 @@
 """
-Bridge Server - WebSocket Only
-==============================
-This is the WebSocket server that handles browser communication.
-Started by the Chrome extension via Native Messaging.
-MCP server runs separately (spawned by the IDE).
+Bridge Server - Multi-Client WebSocket Registry
+================================================
+Handles multiple browser connections with auto-discovery.
+No native messaging required - browsers simply connect via WebSocket.
 """
 
 import asyncio
 import json
-import threading
 import time
+import uuid
 from contextlib import asynccontextmanager
+from typing import Dict, Optional
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 
 # =============================================================================
-# MEMORY MANAGEMENT CONSTANTS
+# CONSTANTS
 # =============================================================================
 
-MAX_LOG_ENTRIES = 50          # Maximum console/network log entries
-MAX_DOM_SIZE = 50000          # Maximum DOM summary size in characters
-STALE_DATA_TIMEOUT = 300      # Clear data after 5 minutes of inactivity
+MAX_LOG_ENTRIES = 50
+MAX_DOM_SIZE = 50000
+STALE_DATA_TIMEOUT = 300
 
 
 # =============================================================================
-# STATE MANAGEMENT (The "Brain")
+# CLIENT REGISTRY
 # =============================================================================
 
-class BrowserState:
-    """Thread-safe global state manager for browser information."""
+class BrowserClient:
+    """Represents a connected browser client."""
     
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._state = {
-            "connected": False,
-            "url": "",
-            "dom_summary": "",
-            "console_logs": [],
-            "network_logs": [],
-        }
-        self._last_update = time.time()
-        self.command_queue: asyncio.Queue = None
+    def __init__(self, client_id: str, websocket: WebSocket):
+        self.id = client_id
+        self.websocket = websocket
+        self.browser = "Unknown"
+        self.url = ""
+        self.dom_summary = ""
+        self.console_logs = []
+        self.network_logs = []
+        self.connected_at = time.time()
+        self.last_update = time.time()
+        self.command_queue: asyncio.Queue = asyncio.Queue()
     
     def update(self, **kwargs):
-        with self._lock:
-            self._last_update = time.time()
-            for key, value in kwargs.items():
-                if key in self._state:
-                    if key in ("console_logs", "network_logs"):
-                        # Append and trim to max entries
-                        if isinstance(value, list):
-                            self._state[key].extend(value)
-                        else:
-                            self._state[key].append(value)
-                        self._state[key] = self._state[key][-MAX_LOG_ENTRIES:]
-                    elif key == "dom_summary":
-                        # Truncate large DOM to prevent memory issues
-                        self._state[key] = value[:MAX_DOM_SIZE] if len(value) > MAX_DOM_SIZE else value
-                    else:
-                        self._state[key] = value
+        self.last_update = time.time()
+        for key, value in kwargs.items():
+            if key == "browser":
+                self.browser = value
+            elif key == "url":
+                self.url = value
+            elif key == "dom":
+                self.dom_summary = value[:MAX_DOM_SIZE] if len(value) > MAX_DOM_SIZE else value
+            elif key == "errors":
+                if isinstance(value, list):
+                    self.console_logs.extend(value)
+                else:
+                    self.console_logs.append(value)
+                self.console_logs = self.console_logs[-MAX_LOG_ENTRIES:]
+            elif key == "network":
+                if isinstance(value, list):
+                    self.network_logs.extend(value)
+                else:
+                    self.network_logs.append(value)
+                self.network_logs = self.network_logs[-MAX_LOG_ENTRIES:]
     
-    def get(self, key: str):
-        with self._lock:
-            return self._state.get(key)
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "browser": self.browser,
+            "url": self.url,
+            "connected_seconds": int(time.time() - self.connected_at),
+            "last_update_seconds_ago": int(time.time() - self.last_update)
+        }
     
-    def get_all(self) -> dict:
-        with self._lock:
-            return self._state.copy()
+    def get_state(self) -> dict:
+        return {
+            "id": self.id,
+            "browser": self.browser,
+            "url": self.url,
+            "dom_summary": self.dom_summary,
+            "console_logs": self.console_logs,
+            "network_logs": self.network_logs
+        }
+
+
+class ClientRegistry:
+    """Manages all connected browser clients."""
     
-    def set_connected(self, status: bool):
-        with self._lock:
-            self._state["connected"] = status
-            if not status:
-                # Clear stale data on disconnect
-                self._clear_volatile_data()
+    def __init__(self):
+        self.clients: Dict[str, BrowserClient] = {}
+        self.active_client_id: Optional[str] = None
     
-    def _clear_volatile_data(self):
-        """Clear logs but keep URL and connection status."""
-        self._state["console_logs"] = []
-        self._state["network_logs"] = []
-        self._state["dom_summary"] = ""
+    def add(self, websocket: WebSocket) -> BrowserClient:
+        client_id = str(uuid.uuid4())[:8]
+        client = BrowserClient(client_id, websocket)
+        self.clients[client_id] = client
+        
+        # Auto-select if first client
+        if self.active_client_id is None:
+            self.active_client_id = client_id
+        
+        return client
     
-    def check_stale_and_cleanup(self):
-        """Check if data is stale and cleanup if needed."""
-        with self._lock:
-            if time.time() - self._last_update > STALE_DATA_TIMEOUT:
-                self._clear_volatile_data()
-                return True
+    def remove(self, client_id: str):
+        if client_id in self.clients:
+            del self.clients[client_id]
+        
+        # Select next client if active was removed
+        if self.active_client_id == client_id:
+            self.active_client_id = next(iter(self.clients), None)
+    
+    def get(self, client_id: str) -> Optional[BrowserClient]:
+        return self.clients.get(client_id)
+    
+    def get_active(self) -> Optional[BrowserClient]:
+        if self.active_client_id:
+            return self.clients.get(self.active_client_id)
+        return None
+    
+    def select(self, client_id: str) -> bool:
+        if client_id in self.clients:
+            self.active_client_id = client_id
+            return True
         return False
     
-    def get_memory_stats(self) -> dict:
-        """Get memory usage statistics."""
-        with self._lock:
-            return {
-                "console_log_count": len(self._state["console_logs"]),
-                "network_log_count": len(self._state["network_logs"]),
-                "dom_size_chars": len(self._state["dom_summary"]),
-                "last_update_seconds_ago": int(time.time() - self._last_update)
-            }
+    def list_all(self) -> list:
+        return [client.to_dict() for client in self.clients.values()]
 
 
-# Global state
-browser_state = BrowserState()
+# Global registry
+registry = ClientRegistry()
 
 
 # =============================================================================
-# PERIODIC CLEANUP TASK
-# =============================================================================
-
-async def periodic_cleanup():
-    """Background task to periodically check and cleanup stale data."""
-    while True:
-        await asyncio.sleep(60)  # Check every minute
-        if browser_state.check_stale_and_cleanup():
-            print("[Bridge] Cleaned up stale data (inactive > 5 min)")
-
-
-# =============================================================================
-# FASTAPI + WEBSOCKET SERVER
+# FASTAPI APP
 # =============================================================================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    browser_state.command_queue = asyncio.Queue()
-    # Start periodic cleanup task
-    cleanup_task = asyncio.create_task(periodic_cleanup())
     yield
-    cleanup_task.cancel()
 
 
 app = FastAPI(
     title="Browser Bridge Server",
-    description="WebSocket bridge between Chrome and AI IDE",
+    description="Multi-client WebSocket bridge with auto-discovery",
     lifespan=lifespan
 )
 
@@ -142,38 +155,86 @@ app = FastAPI(
 async def health_check():
     return {
         "status": "healthy",
-        "browser_connected": browser_state.get("connected"),
-        "memory_stats": browser_state.get_memory_stats()
+        "clients_connected": len(registry.clients),
+        "active_client": registry.active_client_id
     }
+
+
+@app.get("/clients")
+async def list_clients():
+    """List all connected browser clients."""
+    return {
+        "clients": registry.list_all(),
+        "active": registry.active_client_id,
+        "count": len(registry.clients)
+    }
+
+
+@app.post("/select/{client_id}")
+async def select_client(client_id: str):
+    """Select which browser to send commands to."""
+    if registry.select(client_id):
+        return {"success": True, "active": client_id}
+    return {"success": False, "error": "Client not found"}
 
 
 @app.get("/state")
 async def get_state():
-    return browser_state.get_all()
+    """Get state of active browser client."""
+    client = registry.get_active()
+    if client:
+        return client.get_state()
+    return {"error": "No browser connected"}
+
+
+@app.get("/state/{client_id}")
+async def get_client_state(client_id: str):
+    """Get state of specific browser client."""
+    client = registry.get(client_id)
+    if client:
+        return client.get_state()
+    return {"error": "Client not found"}
+
+
+class CommandRequest(BaseModel):
+    type: str
+    selector: Optional[str] = None
+    text: Optional[str] = None
+    x: Optional[int] = None
+    y: Optional[int] = None
+    code: Optional[str] = None
+    target: Optional[str] = None  # Optional: target specific client
 
 
 @app.post("/command")
-async def send_command(command: dict):
-    """HTTP endpoint to send commands to browser (for MCP server to use)."""
-    if not browser_state.get("connected"):
-        return {"success": False, "error": "Browser not connected"}
+async def send_command(command: CommandRequest):
+    """Send command to browser (active or specified client)."""
+    # Determine target client
+    target_id = command.target or registry.active_client_id
+    client = registry.get(target_id) if target_id else None
     
-    await browser_state.command_queue.put(command)
-    return {"success": True, "message": "Command queued"}
+    if not client:
+        return {"success": False, "error": "No browser connected"}
+    
+    cmd = command.model_dump(exclude_none=True, exclude={'target'})
+    await client.command_queue.put(cmd)
+    return {"success": True, "message": f"Command queued for {client.browser}", "client": client.id}
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    browser_state.set_connected(True)
-    print("[Bridge] Browser extension connected")
+    
+    # Register new client
+    client = registry.add(websocket)
+    print(f"[Bridge] Client {client.id} connected ({len(registry.clients)} total)")
     
     async def send_commands():
         try:
             while True:
-                command = await browser_state.command_queue.get()
+                command = await client.command_queue.get()
                 await websocket.send_json(command)
-                print(f"[Bridge] Sent command: {command}")
+                print(f"[Bridge] Sent to {client.id}: {command}")
         except asyncio.CancelledError:
             pass
     
@@ -183,34 +244,38 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             
-            if "url" in data:
-                browser_state.update(url=data["url"])
-            if "dom" in data:
-                browser_state.update(dom_summary=data["dom"])
-            if "errors" in data:
-                browser_state.update(console_logs=data["errors"])
-            if "network" in data:
-                browser_state.update(network_logs=data["network"])
+            # Handle registration message
+            if data.get("type") == "register":
+                client.update(browser=data.get("browser", "Unknown"))
+                print(f"[Bridge] Client {client.id} identified as {client.browser}")
             
-            url = browser_state.get('url')
-            print(f"[Bridge] Updated - URL: {url[:60] if url else 'N/A'}...")
+            # Update client state
+            if "url" in data:
+                client.update(url=data["url"])
+            if "dom" in data:
+                client.update(dom=data["dom"])
+            if "errors" in data:
+                client.update(errors=data["errors"])
+            if "network" in data:
+                client.update(network=data["network"])
     
     except WebSocketDisconnect:
-        print("[Bridge] Browser extension disconnected")
+        print(f"[Bridge] Client {client.id} ({client.browser}) disconnected")
     except Exception as e:
-        print(f"[Bridge] Error: {e}")
+        print(f"[Bridge] Error with {client.id}: {e}")
     finally:
         sender_task.cancel()
-        browser_state.set_connected(False)
+        registry.remove(client.id)
+        print(f"[Bridge] {len(registry.clients)} client(s) remaining")
 
 
 def main():
     print("=" * 50)
     print("🌉 Browser Bridge Server")
     print("=" * 50)
-    print("📡 WebSocket: ws://127.0.0.1:8000/ws")
-    print("📊 Health:    http://127.0.0.1:8000/health")
-    print("🧠 Memory:    Auto-cleanup after 5 min inactivity")
+    print("📡 WebSocket:  ws://127.0.0.1:8000/ws")
+    print("📋 Clients:    http://127.0.0.1:8000/clients")
+    print("🎯 Select:     POST /select/{client_id}")
     print("=" * 50)
     
     uvicorn.run(

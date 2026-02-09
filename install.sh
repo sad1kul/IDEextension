@@ -1,174 +1,217 @@
 #!/bin/bash
-# ============================================================================
-# AntiGravity Browser Bridge - One-Click Installer
-# ============================================================================
-# This script installs everything needed for the Browser Bridge:
-# - Python dependencies
-# - Chrome Extension (instructions)
-# - Native Messaging Host
-# - MCP Server configuration
-# - VS Code Extension
-# ============================================================================
+# =============================================================================
+# Browser Bridge - Automated Installation Script
+# =============================================================================
+# This script automatically:
+# 1. Installs Python dependencies
+# 2. Configures MCP for supported IDEs (Gemini CLI, Cursor, Windsurf, Claude)
+# 3. Installs VS Code extension (if applicable)
+# =============================================================================
 
 set -e
 
 # Colors
-RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+echo -e "${BLUE}"
+echo "╔═══════════════════════════════════════════════════════════════╗"
+echo "║           🌉 Browser Bridge - Installation Script             ║"
+echo "╚═══════════════════════════════════════════════════════════════╝"
+echo -e "${NC}"
 
-echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║     🚀 AntiGravity Browser Bridge - Installer                ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
-echo ""
-
-# ============================================================================
-# Step 1: Check Python
-# ============================================================================
-echo -e "${BLUE}[1/5]${NC} Checking Python installation..."
-
-if command -v python3 &> /dev/null; then
-    PYTHON_CMD="python3"
-    PYTHON_VERSION=$(python3 --version 2>&1)
-    echo -e "${GREEN}  ✓${NC} Found: $PYTHON_VERSION"
-elif command -v python &> /dev/null; then
-    PYTHON_CMD="python"
-    PYTHON_VERSION=$(python --version 2>&1)
-    if [[ $PYTHON_VERSION == *"Python 3"* ]]; then
-        echo -e "${GREEN}  ✓${NC} Found: $PYTHON_VERSION"
-    else
-        echo -e "${RED}  ✗${NC} Python 3 is required. Please install it first."
-        exit 1
-    fi
-else
-    echo -e "${RED}  ✗${NC} Python not found. Please install Python 3 first."
-    exit 1
-fi
-
-# ============================================================================
-# Step 2: Install Python Dependencies
-# ============================================================================
-echo -e "${BLUE}[2/5]${NC} Installing Python dependencies..."
-
-$PYTHON_CMD -m pip install -q -r "$SCRIPT_DIR/requirements.txt" 2>/dev/null || \
-$PYTHON_CMD -m pip install --user -q -r "$SCRIPT_DIR/requirements.txt"
-
-echo -e "${GREEN}  ✓${NC} Dependencies installed"
-
-# ============================================================================
-# Step 3: Chrome Extension ID
-# ============================================================================
-echo ""
-echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-echo -e "${YELLOW}  Chrome Extension Setup Required${NC}"
-echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-echo ""
-echo "  1. Open Chrome and go to: chrome://extensions"
-echo "  2. Enable 'Developer mode' (top right)"
-echo "  3. Click 'Load unpacked'"
-echo "  4. Select: $SCRIPT_DIR/../AntiGravityIDEconnector"
-echo "  5. Copy the Extension ID shown under the extension name"
-echo ""
-echo -e "${BLUE}[3/5]${NC} Enter your Chrome Extension ID:"
-read -p "  Extension ID: " EXTENSION_ID
-
-if [ -z "$EXTENSION_ID" ] || [ ${#EXTENSION_ID} -lt 10 ]; then
-    echo -e "${RED}  ✗${NC} Invalid Extension ID. Please run this script again."
-    exit 1
-fi
-
-echo -e "${GREEN}  ✓${NC} Extension ID: $EXTENSION_ID"
-
-# ============================================================================
-# Step 4: Register Native Messaging Host
-# ============================================================================
-echo -e "${BLUE}[4/5]${NC} Registering native messaging host..."
-
-HOST_NAME="com.antigravity.bridge"
-NATIVE_HOST_PATH="$SCRIPT_DIR/native_host.py"
-
-# Make executable
-chmod +x "$NATIVE_HOST_PATH"
-
-# Determine Chrome directory
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    CHROME_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    CHROME_DIR="$HOME/.config/google-chrome/NativeMessagingHosts"
-else
-    echo -e "${RED}  ✗${NC} Unsupported OS. Manual setup required."
-    exit 1
-fi
-
-mkdir -p "$CHROME_DIR"
-
-# Create manifest
-cat > "$CHROME_DIR/${HOST_NAME}.json" << EOF
-{
-  "name": "${HOST_NAME}",
-  "description": "AntiGravity IDE Bridge - Native Messaging Host",
-  "path": "${NATIVE_HOST_PATH}",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://${EXTENSION_ID}/"
-  ]
-}
-EOF
-
-echo -e "${GREEN}  ✓${NC} Native messaging host registered"
-
-# ============================================================================
-# Step 5: Configure MCP
-# ============================================================================
-echo -e "${BLUE}[5/5]${NC} Configuring MCP server..."
-
+# Get script directory (where Bridge files are located)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 MCP_SERVER_PATH="$SCRIPT_DIR/mcp_server.py"
-GEMINI_CONFIG_DIR="$HOME/.gemini/antigravity"
-MCP_CONFIG_PATH="$GEMINI_CONFIG_DIR/mcp_config.json"
+BRIDGE_SERVER_PATH="$SCRIPT_DIR/bridge_server.py"
 
-mkdir -p "$GEMINI_CONFIG_DIR"
+echo -e "${YELLOW}📂 Installation directory: $SCRIPT_DIR${NC}"
+echo ""
 
-cat > "$MCP_CONFIG_PATH" << EOF
+# =============================================================================
+# Step 1: Install Python Dependencies
+# =============================================================================
+echo -e "${BLUE}[1/4] Installing Python dependencies...${NC}"
+
+if command -v pip3 &> /dev/null; then
+    pip3 install --user fastapi uvicorn websockets httpx mcp --quiet 2>/dev/null || \
+    pip3 install fastapi uvicorn websockets httpx mcp --quiet 2>/dev/null || \
+    echo -e "${YELLOW}   ⚠️  Some packages may need manual install: pip3 install fastapi uvicorn websockets httpx mcp${NC}"
+    echo -e "${GREEN}✅ Python dependencies installed${NC}"
+else
+    echo -e "${RED}❌ pip3 not found. Please install Python 3.8+${NC}"
+    exit 1
+fi
+
+# =============================================================================
+# Step 2: Detect and Configure IDEs
+# =============================================================================
+echo ""
+echo -e "${BLUE}[2/4] Configuring MCP for detected IDEs...${NC}"
+
+configure_mcp() {
+    local config_path="$1"
+    local ide_name="$2"
+    
+    # Create directory if needed
+    mkdir -p "$(dirname "$config_path")"
+    
+    # Check if config exists
+    if [ -f "$config_path" ]; then
+        # Check if browser-bridge already configured
+        if grep -q "browser-bridge" "$config_path" 2>/dev/null; then
+            echo -e "${YELLOW}   ⚠️  $ide_name: Already configured${NC}"
+            return
+        fi
+        
+        # Merge with existing config using Python
+        python3 << EOF
+import json
+
+config_path = "$config_path"
+mcp_server = "$MCP_SERVER_PATH"
+
+try:
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+except:
+    config = {}
+
+if 'mcpServers' not in config:
+    config['mcpServers'] = {}
+
+config['mcpServers']['browser-bridge'] = {
+    "command": "python3",
+    "args": [mcp_server],
+    "env": {}
+}
+
+with open(config_path, 'w') as f:
+    json.dump(config, f, indent=2)
+EOF
+        echo -e "${GREEN}   ✅ $ide_name: Configured${NC}"
+    else
+        # Create new config
+        cat > "$config_path" << EOF
 {
   "mcpServers": {
     "browser-bridge": {
-      "command": "$PYTHON_CMD",
+      "command": "python3",
       "args": ["$MCP_SERVER_PATH"],
       "env": {}
     }
   }
 }
 EOF
+        echo -e "${GREEN}   ✅ $ide_name: Configured${NC}"
+    fi
+}
 
-echo -e "${GREEN}  ✓${NC} MCP server configured"
+# Gemini CLI / Antigravity
+GEMINI_CONFIG="$HOME/.gemini/antigravity/mcp_config.json"
+if [ -d "$HOME/.gemini" ]; then
+    configure_mcp "$GEMINI_CONFIG" "Gemini CLI"
+else
+    mkdir -p "$HOME/.gemini/antigravity"
+    configure_mcp "$GEMINI_CONFIG" "Gemini CLI"
+fi
 
-# ============================================================================
-# Done!
-# ============================================================================
+# Windsurf
+WINDSURF_CONFIG="$HOME/.codeium/windsurf/mcp_config.json"
+mkdir -p "$HOME/.codeium/windsurf"
+configure_mcp "$WINDSURF_CONFIG" "Windsurf"
+
+# Claude Desktop (macOS)
+if [ "$(uname)" == "Darwin" ]; then
+    CLAUDE_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+    if [ -d "$HOME/Library/Application Support/Claude" ]; then
+        configure_mcp "$CLAUDE_CONFIG" "Claude Desktop"
+    else
+        mkdir -p "$HOME/Library/Application Support/Claude"
+        configure_mcp "$CLAUDE_CONFIG" "Claude Desktop"
+    fi
+fi
+
+# Cursor (just inform about extension)
+if [ -d "$HOME/Library/Application Support/Cursor" ] || [ -d "$HOME/.config/Cursor" ]; then
+    echo -e "${GREEN}   ✅ Cursor: Install .vsix extension from vscode-extension/${NC}"
+fi
+
+# =============================================================================
+# Step 3: Install VS Code Extension
+# =============================================================================
 echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║     ✅ Installation Complete!                                ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${BLUE}[3/4] Installing VS Code extension...${NC}"
+
+VSIX_PATH="$SCRIPT_DIR/vscode-extension/browser-bridge-1.2.0.vsix"
+
+if [ -f "$VSIX_PATH" ]; then
+    # Try VS Code
+    if command -v code &> /dev/null; then
+        code --install-extension "$VSIX_PATH" --force 2>/dev/null && \
+            echo -e "${GREEN}   ✅ VS Code: Extension installed${NC}" || \
+            echo -e "${YELLOW}   ⚠️  VS Code: Install manually from $VSIX_PATH${NC}"
+    else
+        echo -e "${YELLOW}   ⏭️  VS Code CLI not found${NC}"
+    fi
+    
+    # Try Cursor
+    if command -v cursor &> /dev/null; then
+        cursor --install-extension "$VSIX_PATH" --force 2>/dev/null && \
+            echo -e "${GREEN}   ✅ Cursor: Extension installed${NC}" || \
+            echo -e "${YELLOW}   ⚠️  Cursor: Install manually from $VSIX_PATH${NC}"
+    else
+        echo -e "${YELLOW}   ⏭️  Cursor CLI not found${NC}"
+    fi
+else
+    echo -e "${YELLOW}   ⚠️  .vsix not found. Build with: cd vscode-extension && npx vsce package${NC}"
+fi
+
+# =============================================================================
+# Step 4: Clone Browser Extension
+# =============================================================================
 echo ""
-echo -e "  ${YELLOW}IMPORTANT:${NC} Please restart Chrome (close all windows)"
+echo -e "${BLUE}[4/4] Browser Extension Setup...${NC}"
+
+BROWSER_EXT_DIR="$HOME/AntiGravityIDEconnector"
+
+if [ -d "$BROWSER_EXT_DIR" ]; then
+    echo -e "${YELLOW}   ⚠️  Browser extension already exists at $BROWSER_EXT_DIR${NC}"
+elif command -v git &> /dev/null; then
+    git clone --quiet https://github.com/sad1kul/AntiGravityIDEconnector.git "$BROWSER_EXT_DIR" 2>/dev/null && \
+        echo -e "${GREEN}   ✅ Browser extension cloned to $BROWSER_EXT_DIR${NC}" || \
+        echo -e "${YELLOW}   ⚠️  Clone failed. Clone manually: git clone https://github.com/sad1kul/AntiGravityIDEconnector.git${NC}"
+else
+    echo -e "${YELLOW}   ⚠️  Git not found. Clone manually from: https://github.com/sad1kul/AntiGravityIDEconnector${NC}"
+fi
+
+# =============================================================================
+# Summary
+# =============================================================================
 echo ""
-echo -e "  ${CYAN}To use:${NC}"
-echo "  1. Click the AntiGravity extension icon in Chrome"
-echo "  2. Click 'Start Server'"
-echo "  3. Navigate to any webpage"
-echo "  4. Click 'Connect'"
-echo "  5. Use MCP tools in your IDE!"
+echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║                    ✅ Installation Complete!                  ║${NC}"
+echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  ${CYAN}Available MCP Tools:${NC}"
-echo "  • get_browser_state - Get page URL, DOM, errors"
-echo "  • click_element     - Click by CSS selector"
-echo "  • type_text         - Type into inputs"
-echo "  • verify_fix        - Check DOM elements"
-echo "  • verify_api_cors   - Diagnose CORS issues"
+echo -e "${YELLOW}Final Steps:${NC}"
+echo ""
+echo "1. ${BLUE}Load Browser Extension:${NC}"
+echo "   - Open chrome://extensions (or brave://extensions)"
+echo "   - Enable Developer mode"
+echo "   - Click 'Load unpacked' → Select: $BROWSER_EXT_DIR"
+echo ""
+echo "2. ${BLUE}Restart your IDE${NC} to load MCP configuration"
+echo ""
+echo "3. ${BLUE}Connect:${NC}"
+echo "   - Open any webpage"
+echo "   - Click Browser Bridge extension → Connect"
+echo "   - Ask your AI: 'get browser state'"
+echo ""
+echo -e "${BLUE}Configured IDEs:${NC}"
+echo "   - Gemini CLI: ~/.gemini/antigravity/mcp_config.json"
+echo "   - Windsurf:   ~/.codeium/windsurf/mcp_config.json"
+[ "$(uname)" == "Darwin" ] && echo "   - Claude:     ~/Library/Application Support/Claude/claude_desktop_config.json"
 echo ""
