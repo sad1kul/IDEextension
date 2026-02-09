@@ -5,7 +5,7 @@ Connect your AI IDE to any Chromium browser for real-time debugging and remote c
 ## Quick Start
 
 1. **Install VS Code Extension** - See `/vscode-extension/README.md`
-2. **Install Browser Extension** - [github.com/sad1kul/AntiGravityIDEconnector](https://github.com/sad1kul/AntiGravityIDEconnector)
+2. **Install Browser Extension** - [github.com/sad1kul/IDEconnector](https://github.com/sad1kul/IDEconnector)
 3. **Open IDE** - Server starts automatically
 4. **Click extension in browser** → Connect
 5. **Use MCP tools** to interact with the page
@@ -30,7 +30,8 @@ pip install fastapi uvicorn websockets
 ## Links
 
 - **VS Code Extension:** `/vscode-extension/`
-- **Browser Extension:** [github.com/sad1kul/AntiGravityIDEconnector](https://github.com/sad1kul/AntiGravityIDEconnector)
+- **Browser Extension:** [github.com/sad1kul/IDEconnector](https://github.com/sad1kul/IDEconnector)
+- **IDE Extension (this repo):** [github.com/sad1kul/IDEextension](https://github.com/sad1kul/IDEextension)
 
 ## License
 

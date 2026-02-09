@@ -10,8 +10,8 @@ Turn your AI into a web developer's superpower. Browser Bridge streams live DOM,
 
 ```bash
 # Clone and install
-git clone https://github.com/YOUR_REPO/browser-bridge.git
-cd browser-bridge
+git clone https://github.com/sad1kul/IDEextension.git
+cd IDEextension
 ./install.sh
 ```
 
@@ -23,7 +23,7 @@ cd browser-bridge
 **One manual step:** Load the browser extension in Chrome/Brave:
 1. Go to `chrome://extensions`
 2. Enable **Developer mode**
-3. Click **Load unpacked** → Select `~/AntiGravityIDEconnector`
+3. Click **Load unpacked** → Select `~/IDEconnector`
 
 ---
 
@@ -49,7 +49,7 @@ cd browser-bridge
 | **VS Code** | ✅ | ✅ | ✅ |
 | **Cursor** | ✅ | ✅ | ✅ |
 | **Gemini CLI** | — | ✅ | ✅ |
-| **Windsurf** | — | ✅ | ✅ |
+| **Windsurf** | ✅ | ✅ | ✅ |
 | **Claude Desktop** | — | ✅ | ✅ |
 
 ---
@@ -174,7 +174,8 @@ browser-bridge/
 
 ## 🔗 Links
 
-- **Browser Extension:** [github.com/sad1kul/AntiGravityIDEconnector](https://github.com/sad1kul/AntiGravityIDEconnector)
+- **Browser Extension:** [github.com/sad1kul/IDEconnector](https://github.com/sad1kul/IDEconnector)
+- **IDE Extension:** [github.com/sad1kul/IDEextension](https://github.com/sad1kul/IDEextension)
 
 ---
 

@@ -176,16 +176,16 @@ fi
 echo ""
 echo -e "${BLUE}[4/4] Browser Extension Setup...${NC}"
 
-BROWSER_EXT_DIR="$HOME/AntiGravityIDEconnector"
+BROWSER_EXT_DIR="$HOME/IDEconnector"
 
 if [ -d "$BROWSER_EXT_DIR" ]; then
     echo -e "${YELLOW}   ⚠️  Browser extension already exists at $BROWSER_EXT_DIR${NC}"
 elif command -v git &> /dev/null; then
-    git clone --quiet https://github.com/sad1kul/AntiGravityIDEconnector.git "$BROWSER_EXT_DIR" 2>/dev/null && \
+    git clone --quiet https://github.com/sad1kul/IDEconnector.git "$BROWSER_EXT_DIR" 2>/dev/null && \
         echo -e "${GREEN}   ✅ Browser extension cloned to $BROWSER_EXT_DIR${NC}" || \
-        echo -e "${YELLOW}   ⚠️  Clone failed. Clone manually: git clone https://github.com/sad1kul/AntiGravityIDEconnector.git${NC}"
+        echo -e "${YELLOW}   ⚠️  Clone failed. Clone manually: git clone https://github.com/sad1kul/IDEconnector.git${NC}"
 else
-    echo -e "${YELLOW}   ⚠️  Git not found. Clone manually from: https://github.com/sad1kul/AntiGravityIDEconnector${NC}"
+    echo -e "${YELLOW}   ⚠️  Git not found. Clone manually from: https://github.com/sad1kul/IDEconnector${NC}"
 fi
 
 # =============================================================================
