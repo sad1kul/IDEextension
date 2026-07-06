@@ -2,13 +2,12 @@
     "name": "browser-bridge",
     "displayName": "Browser Bridge",
     "description": "Connect your AI IDE to browsers for real-time debugging and control",
-    "version": "1.3.1b",
+    "version": "1.3.2",
     "publisher": "sad1kul",
     "author": {
         "name": "Sadikul Islam"
     },
     "license": "MIT",
-    "private": true,
     "icon": "icon.png",
     "engines": {
         "vscode": "^1.74.0"
@@ -58,18 +57,18 @@
             "properties": {
                 "browserbridge.pythonPath": {
                     "type": "string",
-                    "default": "python3",
-                    "description": "Path to Python interpreter"
+                    "default": "",
+                    "description": "Path to Python interpreter. Leave empty to use python3 (mac/linux) or python (windows)."
                 },
                 "browserbridge.serverPath": {
                     "type": "string",
                     "default": "",
-                    "description": "Path to bridge_server.py (leave empty for auto-detect)"
+                    "description": "Path to bridge_server.py. Leave empty for auto-detect."
                 },
                 "browserbridge.autoStart": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Automatically start Bridge Server on IDE startup"
+                    "description": "Automatically start Bridge Server when the IDE opens."
                 }
             }
         }

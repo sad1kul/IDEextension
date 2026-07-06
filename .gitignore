@@ -1,0 +1,9 @@
+node_modules/
+*.vsix
+*.log
+__pycache__/
+*.pyc
+.env
+dist/
+out/
+.vscode/
